@@ -13,6 +13,8 @@ section .data
     INST_STD        db  "std",0
     INST_CLD        db  "cld",0
 
+    INST_SYSCALL    db  "syscall",0
+
 section .bss
     buf             resb 8192
     datasize        resq 1
@@ -155,26 +157,36 @@ assemble_zero_operand_instructions:
     call compare_strings
     je call_assemble_cld
 
+    mov rax, INST_SYSCALL
+    mov byte [strcmp_len], INST_SYSCALL_LEN
+    call compare_strings
+    je call_assemble_syscall
+
     ret                                        ; return in case instruction is not one of STC, CLC, STD, CLD
 
     call_assemble_stc:
-    mov word [machine_code], INST_STC_OPCODE
+    mov byte [machine_code], INST_STC_OPCODE
     mov word [machine_code_len], INST_STC_OPCODE_LEN
     ret
 
     call_assemble_clc:
-    mov word [machine_code], INST_CLC_OPCODE
+    mov byte [machine_code], INST_CLC_OPCODE
     mov word [machine_code_len], INST_CLC_OPCODE_LEN
     ret
 
     call_assemble_std:
-    mov word [machine_code], INST_STD_OPCODE
+    mov byte [machine_code], INST_STD_OPCODE
     mov word [machine_code_len], INST_STD_OPCODE_LEN
     ret
 
     call_assemble_cld:
-    mov word [machine_code], INST_CLD_OPCODE
+    mov byte [machine_code], INST_CLD_OPCODE
     mov word [machine_code_len], INST_CLD_OPCODE_LEN
+    ret
+
+    call_assemble_syscall:
+    mov word [machine_code], INST_SYSCALL_OPCODE
+    mov word [machine_code_len], INST_SYSCALL_OPCODE_LEN
     ret
 
 close_file:
