@@ -15,6 +15,10 @@ section .data
 
     INST_SYSCALL    db  "syscall",0
 
+    INST_LEAVE      db  "leave",0
+
+    INST_NOT        db  "not ",0
+
 section .bss
     buf             resb 8192
     datasize        resq 1
@@ -30,7 +34,6 @@ section .text
 
 ; ========== UTILS ==========
 compare_strings:
-    push rcx
     push rdx
     xor rcx, rcx
     strcmp_loop:
@@ -46,6 +49,19 @@ compare_strings:
 
     strcmp_end:
     pop rdx
+    ret
+
+clear_memory:                                ; clears starting from rax to len rbx
+    push rcx
+    xor rcx, rcx
+    clear_char:
+        cmp rcx, rbx
+        jae clear_memory_end
+
+        mov byte [rax + rcx], 0
+        inc rcx
+
+    clear_memory_end:
     pop rcx
     ret
 
@@ -93,7 +109,16 @@ assemble_file:
     ret
 
 read_instruction:
-    call clear_instruction
+    mov rax, instruction
+    mov bx, [instruction_len]
+    call clear_memory
+    mov word [instruction_len], 0
+
+    mov rax, machine_code
+    mov bx, [machine_code_len]
+    call clear_memory
+    mov word [machine_code_len], 0
+
     xor rax, rax
     next_char:
         mov rdx, [buf + rcx]
@@ -113,24 +138,13 @@ read_instruction:
     mov word [instruction_len], ax
     ret
 
-clear_instruction:
-    push rcx
-    xor rcx, rcx
-    clear_char:
-        cmp rcx, [instruction_len]
-        jae clear_instruction_end
-
-        mov byte [instruction + rcx], 0
-        inc rcx
-    
-    clear_instruction_end:
-    mov word [instruction_len], 0
-    pop rcx
-
-    ret
-
 assemble_instruction:
+    push rcx
+
     call assemble_zero_operand_instructions
+    call assemble_single_operand_instructions
+
+    pop rcx
     ret
 
 ; ========== ZERO OPERANDS ==========
@@ -162,6 +176,11 @@ assemble_zero_operand_instructions:
     call compare_strings
     je call_assemble_syscall
 
+    mov rax, INST_LEAVE
+    mov byte [strcmp_len], INST_LEAVE_LEN
+    call compare_strings
+    je call_assemble_leave
+
     ret                                        ; return in case instruction is not one of STC, CLC, STD, CLD
 
     call_assemble_stc:
@@ -187,6 +206,21 @@ assemble_zero_operand_instructions:
     call_assemble_syscall:
     mov word [machine_code], INST_SYSCALL_OPCODE
     mov word [machine_code_len], INST_SYSCALL_OPCODE_LEN
+    ret
+
+    call_assemble_leave:
+    mov byte [machine_code], INST_LEAVE_OPCODE
+    mov word [machine_code_len], INST_LEAVE_OPCODE_LEN
+    ret
+
+assemble_single_operand_instructions:
+    mov rax, INST_NOT
+    mov byte [strcmp_len], INST_NOT_LEN
+    call compare_strings
+    je call_assemble_not
+    ret
+
+    call_assemble_not:
     ret
 
 close_file:

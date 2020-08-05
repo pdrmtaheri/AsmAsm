@@ -1,3 +1,6 @@
 stc
+cld
+std
 clc
-stc
+syscall
+leave
