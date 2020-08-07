@@ -47,3 +47,5 @@
 %define W_8 0
 %define W_16 1
 %define W_32 1
+
+%define REX 0b01000000

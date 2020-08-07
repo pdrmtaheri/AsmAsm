@@ -23,6 +23,7 @@ section .data
 
     op_prefix       db 1
     addr_prefix     db 1
+    rex_field       db 1
 
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
@@ -249,6 +250,7 @@ cleanup_previous_instruction:
 
     mov byte [op_prefix], 0
     mov byte [addr_prefix], 0
+    mov byte [rex_field], 0
 
 ; ========== ZERO OPERANDS ==========
 assemble_zero_operand_instructions:
@@ -333,6 +335,7 @@ assemble_not:
     call determine_operand_size
     call determine_address_size
     call determine_prefix
+    call determine_rex
 
     mov byte [machine_code], INST_NOT_OPCODE
     cmp byte [op_size], 8
@@ -383,6 +386,70 @@ assemble_not:
 
     assemble_not_add_disp_bytes:
     call append_disp_byte_from_rax
+    ret
+
+determine_rex:
+    cmp byte [op1_type], 0 ; reg
+    je check_64bit_register
+    jmp check_64bit_memory
+
+    check_64bit_register:
+    cmp byte [op1_reg], "r"
+    je add_64bit_register
+    ret
+
+    add_64bit_register:
+    mov byte [rex_field], REX
+    mov rax, op1_reg
+    xor rbx, rbx
+    mov bx, [op1_reg_len]
+    call is_new_register
+    cmp rax, 1
+    jne no_need_b_in_rex
+    or byte [rex_field], 0b00000001
+
+    no_need_b_in_rex:
+    cmp byte [op_size], 64
+    jne no_chance_rex
+    or byte [rex_field], 0b00001000
+    ret
+
+    check_64bit_memory:
+    cmp word [op1_index_len], 0
+    je check_64bit_memory_base
+    cmp byte [op1_index], "r"
+    jne check_64bit_memory_base
+    mov byte [rex_field], REX
+    or byte [rex_field], 0b00000010
+
+    check_64bit_memory_base:
+    cmp word [op1_base_len], 0
+    je no_rex
+    cmp byte [op1_base], "r"
+    jne no_rex
+    mov byte [rex_field], REX
+    or byte [rex_field], 0b00000001
+
+    no_rex:
+    cmp byte [rex_field], 0
+    je no_chance_rex
+    
+    cmp byte [op_size], 64
+    jne no_chance_rex
+    or byte [rex_field], 0b00001000
+    ret
+
+    no_chance_rex:
+    ret
+
+is_new_register:
+    cmp byte [rax+1], "a"
+    jae not_new_register
+    mov rax, 1
+    ret
+
+    not_new_register:
+    mov rax, 0
     ret
 
 determine_prefix:
@@ -1104,7 +1171,7 @@ get_register_code_2:
 
     grc2_bh:
     cmp word [rax], "bh"
-    jne grc2_ax
+    jne grc2_bx
     mov rax, 0b111
     ret
 
@@ -1170,8 +1237,20 @@ get_register_code_2:
 
     grc2_di:
     cmp word [rax], "di"
-    jne invalid_reg_2
+    jne grc2_r8
     mov rax, 0b111
+    ret
+
+    grc2_r8:
+    cmp word [rax], "r8"
+    jne grc2_r9
+    mov rax, 0b000
+    ret
+
+    grc2_r9:
+    cmp word [rax], "r9"
+    jne invalid_reg_2
+    mov rax, 0b001
     ret
 
     invalid_reg_2:
