@@ -18,8 +18,8 @@ section .data
     op1_disp_len    dw 0
     op1_size_declr_len  dw 0
 
-    op_size         dw 0
-    addr_size       dw 0
+    op_size         db 0
+    addr_size       db 0
 
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
@@ -229,7 +229,6 @@ assemble_instruction:
     ret
 
 cleanup_previous_instruction:
-    mov word [instruction_len], 0
     mov word [machine_code_len], 0
     mov word [dummy_str_len], 0
 
@@ -242,8 +241,8 @@ cleanup_previous_instruction:
     mov word [op1_disp_len], 0
     mov word [op1_size_declr_len], 0
 
-    mov word [op_size], 0
-    mov word [addr_size], 0
+    mov byte [op_size], 0
+    mov byte [addr_size], 0
 
 ; ========== ZERO OPERANDS ==========
 assemble_zero_operand_instructions:
@@ -335,7 +334,12 @@ determine_operand_size:
 
     cmp byte [op1_type], 0        ; reg
     jne determine_ow
-    call determine_operand_size_by_op1_register
+
+    mov rax, op1_reg
+    mov bx, [op1_reg_len]
+    call get_register_size
+    mov byte [op_size], al
+
     ret
 
     determine_ow:
@@ -344,76 +348,97 @@ determine_operand_size:
     dos_return:
     ret
 
-determine_operand_size_by_op1_register:
-    cmp byte [op1_reg_len], 4
+determine_address_size:
+    cmp byte [op1_has_base], 1
+    je determine_by_base
+
+    cmp byte [op1_index_len], 0
+    jne determine_by_index
+
+    mov byte [addr_size], 64
+    ret
+
+    determine_by_base:
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_size
+    mov byte [addr_size], al
+    ret
+
+    determine_by_index:
+    mov rax, op1_index
+    mov bx, [op1_index_len]
+    call get_register_size
+    mov byte [addr_size], al
+    ret
+
+get_register_size:                    ; register in [rax] with len bx. result in al
+    cmp bx, 4
     jne determine_2
 
-    cmp byte [op1_reg + 3], "d"
-    je op_size_32
+    cmp byte [rax + 3], "d"
+    je size_32
 
-    cmp byte [op1_reg + 3], "w"
-    je op_size_16
+    cmp byte [rax + 3], "w"
+    je size_16
 
-    cmp byte [op1_reg + 3], "b"
-    je op_size_8
+    cmp byte [rax + 3], "b"
+    je size_8
 
 
     determine_2:
-    cmp byte [op1_reg_len], 2
+    cmp bx, 2
     jne determine_3
 
-    cmp byte [op1_reg+1], "l"
-    je op_size_8
+    cmp byte [rax+1], "l"
+    je size_8
 
-    cmp byte [op1_reg+1], "h"
-    je op_size_8
+    cmp byte [rax+1], "h"
+    je size_8
 
-    cmp byte [op1_reg], "r"
-    je op_size_64
+    cmp byte [rax], "r"
+    je size_64
 
-    jmp op_size_16
+    jmp size_16
 
     determine_3:         ; 3 letters
 
-    cmp word [op1_reg], "r8"
+    cmp word [rax], "r8"
     je determine_r8_r9_subs
 
-    cmp word [op1_reg], "r9"
+    cmp word [rax], "r9"
     je determine_r8_r9_subs
 
-    cmp byte [op1_reg], "e"
-    je op_size_32
+    cmp byte [rax], "e"
+    je size_32
 
-    cmp byte [op1_reg], "r"
-    je op_size_64
+    cmp byte [rax], "r"
+    je size_64
 
     determine_r8_r9_subs:
-    cmp byte [op1_reg + 2], "d"
-    je op_size_32
+    cmp byte [rax + 2], "d"
+    je size_32
 
-    cmp byte [op1_reg + 2], "w"
-    je op_size_16
+    cmp byte [rax + 2], "w"
+    je size_16
 
-    cmp byte [op1_reg + 2], "b"
-    je op_size_8
+    cmp byte [rax + 2], "b"
+    je size_8
 
-    op_size_8:
-    mov byte [op_size], 8
+    size_8:
+    mov al, 8
     ret
 
-    op_size_16:
-    mov byte [op_size], 16
+    size_16:
+    mov al, 16
     ret
 
-    op_size_32:
-    mov byte [op_size], 32
+    size_32:
+    mov al, 32
     ret
 
-    op_size_64:
-    mov byte [op_size], 64
-    ret
-
-determine_address_size:
+    size_64:
+    mov al, 64
     ret
 
 process_size_declaration:
@@ -444,6 +469,7 @@ process_size_declaration:
     mov rdx, rcx
     pop rcx
     mov rcx, rdx
+    inc rcx
     ret
 
     invalid_size_declr:
@@ -455,10 +481,10 @@ is_op1_size_declr_valid:
     jne size_declr_five
 
     cmp dword [op1_size_declr], "byte"
-    je size_declr_valid
+    je size_declr_valid_8
 
     cmp dword [op1_size_declr], "word"
-    je size_declr_valid
+    je size_declr_valid_16
 
     jmp size_declr_invalid
 
@@ -467,20 +493,37 @@ is_op1_size_declr_valid:
     jne size_declr_invalid
 
     cmp dword [op1_size_declr], "dwor"
-    je size_declr_half_valid
+    je size_declr_half_valid_32
 
     cmp dword [op1_size_declr], "qwor"
-    je size_declr_half_valid
+    je size_declr_half_valid_64
 
     size_declr_invalid:
+    mov byte [op_size], 0
     mov rax, 0
     ret
 
-    size_declr_half_valid:
+    size_declr_half_valid_32:
     cmp byte [op1_size_declr + 4], "d"
     jne size_declr_invalid
+    mov byte [op_size], 32
+    mov rax, 1
+    ret
 
-    size_declr_valid:
+    size_declr_half_valid_64:
+    cmp byte [op1_size_declr + 4], "d"
+    jne size_declr_invalid
+    mov byte [op_size], 64
+    mov rax, 1
+    ret
+
+    size_declr_valid_8:
+    mov byte [op_size], 8
+    mov rax, 1
+    ret
+
+    size_declr_valid_16:
+    mov byte [op_size], 16
     mov rax, 1
     ret
 
