@@ -1,5 +1,5 @@
+not dword [eax+0x12]
 not dword [eax+ebx*4+0x12]
-not dword [rax+rbx*4+0x12]
 not ecx
 not rcx
 not cx

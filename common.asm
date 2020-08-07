@@ -40,6 +40,8 @@
 %define INST_LEAVE_OPCODE_LEN 1
 
 %define INST_NOT_LEN 4
+%define INST_NOT_OPCODE 0b11110110             ; last zero for w
+%define INST_NOT_MOD_REG_RM 0b00010000         ; first two zeros for mod, last three for r/m
 
 
 %define W_8 0

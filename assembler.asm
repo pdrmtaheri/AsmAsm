@@ -326,6 +326,157 @@ assemble_not:
     call process_operand_1
     call determine_operand_size
     call determine_address_size
+
+    mov byte [machine_code], INST_NOT_OPCODE
+    cmp byte [op_size], 8
+    je assemble_not_skip_adding_w
+    or byte [machine_code], 0b00000001
+
+    assemble_not_skip_adding_w:
+    mov byte [machine_code + 1], INST_NOT_MOD_REG_RM
+    cmp byte [op1_type], 1
+    je assemble_not_memory
+    or byte [machine_code + 1], 0b11000000
+
+    mov rax, op1_reg
+    mov bx, [op1_reg_len]
+    call get_register_code
+    or byte [machine_code+1], al
+
+    ret
+
+    assemble_not_memory:
+    cmp word [op1_index_len], 0
+    jne assemble_not_handle_sib
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_code
+    or byte [machine_code+1], al
+    jmp assemble_not_handle_disp
+
+    assemble_not_handle_sib:
+    or byte [machine_code+1], 0b00000100
+    call create_sib_byte_in_al
+    mov [machine_code+2], al
+
+    assemble_not_handle_disp:
+    cmp word [op1_disp_len], 0
+    jne assemble_not_add_disp
+    ret
+
+    assemble_not_add_disp:
+    cmp word [op1_disp_len], 4
+    ja assemble_not_disp_32
+    or byte [machine_code+1], 0b01000000      ; 8bit disp
+    jmp assemble_not_add_disp_bytes
+
+    assemble_not_disp_32:
+    or byte [machine_code+1], 0b10000000      ; 32bit disp
+    jmp assemble_not_add_disp_bytes
+
+    assemble_not_add_disp_bytes:
+    call append_disp_byte_from_rax
+    ret
+
+append_disp_byte_from_rax:
+    push rcx
+    call create_disp_byte_in_rax      ;byte: rbx
+    mov dword [dummy_str], eax
+
+    xor rcx, rcx
+    adbfr_loop:
+        cmp rcx, rbx
+        jae adbfr_break
+        mov dl, [dummy_str + rcx]
+
+        cmp word [op1_index_len], 0
+        jne adbfr_has_sib
+        mov [machine_code+rcx + 2], dl 
+        jmp adbfr_next
+
+        adbfr_has_sib:
+        mov [machine_code+rcx + 3], dl 
+
+        adbfr_next:
+        inc rcx
+        jmp adbfr_loop
+
+    adbfr_break:
+    mov dword [dummy_str], 0
+    pop rcx
+    ret
+
+create_disp_byte_in_rax:
+    push rcx
+    xor rax, rax
+    mov rcx, 2
+    cdbia_loop:
+        cmp cx, [op1_disp_len]
+        jae cdbia_break
+
+        mov dl, [op1_disp + rcx]
+        sub dl, "0"
+        shl rax, 4
+        add al, dl
+
+        inc rcx
+        jmp cdbia_loop
+
+    cdbia_break:
+    push rax
+
+    mov rax, rcx ; number of nibs
+    sub rax, 2
+    mov dl, 2
+    div dl
+    cmp dl, 0
+    je cdbia_end
+    inc rax
+
+    cdbia_end:
+    mov rbx, rax
+    pop rax
+    pop rcx
+    ret
+
+create_sib_byte_in_al:
+    xor al, al
+
+    cmp word [op1_scale_len], 0
+    je add_index_part
+
+    cmp byte [op1_scale], "2"
+    jne add_scale_4
+    or al, 0b01000000
+    jmp add_index_part
+
+    add_scale_4:
+    cmp byte [op1_scale], "4"
+    jne add_scale_8
+    or al, 0b10000000
+    jmp add_index_part
+
+    add_scale_8:
+    or al, 0b11000000
+
+    add_index_part:
+    push ax
+    mov rax, op1_index
+    mov bx, [op1_index_len]
+    call get_register_code
+    mov bl, al
+    shl bl, 3
+    pop ax
+    or al, bl
+
+    push ax
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_code
+    mov bl, al
+    pop ax
+    or al, bl
+
     ret
 
 determine_operand_size:
@@ -681,4 +832,318 @@ close_file:
     mov rdi, [file_descriptor]
     syscall
 
+    ret
+
+get_register_code:                          ; register in [rax], len: rbx, result: rax
+    cmp rbx, 2
+    jne grc_four
+    call get_register_code_2
+    ret
+
+    grc_four:
+    cmp rbx, 4
+    jne grc_three
+    call get_register_code_4
+    ret
+
+    grc_three:
+    cmp byte [rax], "e"
+    jne grc_two_r
+    call get_register_code_e2
+    ret
+
+    grc_two_r:
+    call get_register_code_r2
+    ret
+
+get_register_code_4:
+    cmp word [rax+1], "10"
+    jne grc4_r11x
+    mov rax, 0b010
+    ret
+
+    grc4_r11x:
+    cmp word [rax+1], "11"
+    jne grc4_r12x
+    mov rax, 0b011
+    ret
+
+    grc4_r12x:
+    cmp word [rax+1], "12"
+    jne grc4_r13x
+    mov rax, 0b100
+    ret
+
+    grc4_r13x:
+    cmp word [rax+1], "13"
+    jne grc4_r14x
+    mov rax, 0b101
+    ret
+
+    grc4_r14x:
+    cmp word [rax+1], "14"
+    jne grc4_r15x
+    mov rax, 0b110
+    ret
+
+    grc4_r15x:
+    cmp word [rax+1], "15"
+    jne invalid_reg_4
+    mov rax, 0b111
+    ret
+
+    invalid_reg_4:
+    mov rax, -1
+    ret
+
+get_register_code_e2:
+    cmp word [rax+1], "ax"
+    jne grce2_ebx
+    mov rax, 0b000
+    ret
+
+    grce2_ebx:
+    cmp word [rax+1], "bx"
+    jne grce2_ecx
+    mov rax, 0b011
+    ret
+
+    grce2_ecx:
+    cmp word [rax+1], "cx"
+    jne grce2_edx
+    mov rax, 0b001
+    ret
+
+    grce2_edx:
+    cmp word [rax+1], "dx"
+    jne grce2_esp
+    mov rax, 0b010
+    ret
+
+    grce2_esp:
+    cmp word [rax+1], "sp"
+    jne grce2_ebp
+    mov rax, 0b100
+    ret
+
+    grce2_ebp:
+    cmp word [rax+1], "bp"
+    jne grce2_esi
+    mov rax, 0b101
+    ret
+
+    grce2_esi:
+    cmp word [rax+1], "si"
+    jne grce2_edi
+    mov rax, 0b110
+    ret
+
+    grce2_edi:
+    cmp word [rax+1], "di"
+    jne grce2_invalid_register
+    mov rax, 0b111
+    ret
+
+    grce2_invalid_register:
+    mov rax, -1
+    ret
+
+get_register_code_r2:
+    cmp byte [rax+1], "8"
+    jne grcr2_r9
+    mov rax, 0b000
+    ret
+
+    grcr2_r9:
+    cmp byte [rax+1], "9"
+    jne grcr2_r10
+    mov rax, 0b001
+    ret
+
+    grcr2_r10:
+    cmp word [rax+1], "10"
+    jne grcr2_r11
+    mov rax, 0b010
+    ret
+
+    grcr2_r11:
+    cmp word [rax+1], "11"
+    jne grcr2_r12
+    mov rax, 0b011
+    ret
+
+    grcr2_r12:
+    cmp word [rax+1], "12"
+    jne grcr2_r13
+    mov rax, 0b100
+    ret
+
+    grcr2_r13:
+    cmp word [rax+1], "13"
+    jne grcr2_r14
+    mov rax, 0b101
+    ret
+
+    grcr2_r14:
+    cmp word [rax+1], "14"
+    jne grcr2_r15
+    mov rax, 0b110
+    ret
+
+    grcr2_r15:
+    cmp word [rax+1], "15"
+    jne grcr2_rcx
+    mov rax, 0b111
+    ret
+
+    grcr2_rax:
+    cmp word [rax+1], "ax"
+    jne grcr2_rbx
+    mov rax, 0b000
+    ret
+
+    grcr2_rbx:
+    cmp word [rax+1], "bx"
+    jne grcr2_rcx
+    mov rax, 0b011
+    ret
+
+    grcr2_rcx:
+    cmp word [rax+1], "cx"
+    jne grcr2_rdx
+    mov rax, 0b001
+    ret
+
+    grcr2_rdx:
+    cmp word [rax+1], "dx"
+    jne grcr2_rsp
+    mov rax, 0b010
+    ret
+    
+    grcr2_rsp:
+    cmp word [rax+1], "sp"
+    jne grcr2_rbp
+    mov rax, 0b100
+    ret
+
+    grcr2_rbp:
+    cmp word [rax+1], "bp"
+    jne grcr2_rsi
+    mov rax, 0b101
+    ret
+
+    grcr2_rsi:
+    cmp word [rax+1], "si"
+    jne grcr2_rdi
+    mov rax, 0b110
+    ret
+
+    grcr2_rdi:
+    cmp word [rax+1], "di"
+    jne grcr2_invalid_reg
+    mov rax, 0b111
+    ret
+
+    grcr2_invalid_reg:
+    mov rax, -1
+    ret
+
+get_register_code_2:
+    cmp word [rax], "al"
+    jne grc2_ah
+    mov rax, 0b000
+    ret
+
+    grc2_ah:
+    cmp word [rax], "ah"
+    jne grc2_ax
+    mov rax, 0b100
+    ret
+
+    grc2_ax:
+    cmp word [rax], "ax"
+    jne grc2_bl
+    mov rax, 0b000
+    ret
+
+    grc2_bl:
+    cmp word [rax], "bl"
+    jne grc2_bh
+    mov rax, 0b011
+    ret
+
+    grc2_bh:
+    cmp word [rax], "bh"
+    jne grc2_ax
+    mov rax, 0b111
+    ret
+
+    grc2_bx:
+    cmp word [rax], "bx"
+    jne grc2_cl
+    mov rax, 0b011
+    ret
+
+    grc2_cl:
+    cmp word [rax], "cl"
+    jne grc2_ch
+    mov rax, 0b001
+    ret
+
+    grc2_ch:
+    cmp word [rax], "ch"
+    jne grc2_cx
+    mov rax, 0b101
+    ret
+
+    grc2_cx:
+    cmp word [rax], "cx"
+    jne grc2_dl
+    mov rax, 0b001
+    ret
+
+    grc2_dl:
+    cmp word [rax], "dl"
+    jne grc2_dh
+    mov rax, 0b010
+    ret
+
+    grc2_dh:
+    cmp word [rax], "dh"
+    jne grc2_dx
+    mov rax, 0b110
+    ret
+
+    grc2_dx:
+    cmp word [rax], "dx"
+    jne grc2_si
+    mov rax, 0b010
+    ret
+
+    grc2_si:
+    cmp word [rax], "si"
+    jne grc2_sp
+    mov rax, 0b110
+    ret
+
+    grc2_sp:
+    cmp word [rax], "sp"
+    jne grc2_bp
+    mov rax, 0b100
+    ret
+
+    grc2_bp:
+    cmp word [rax], "bp"
+    jne grc2_di
+    mov rax, 0b101
+    ret
+
+    grc2_di:
+    cmp word [rax], "di"
+    jne invalid_reg_2
+    mov rax, 0b111
+    ret
+
+    invalid_reg_2:
+    mov rax, -1
     ret
