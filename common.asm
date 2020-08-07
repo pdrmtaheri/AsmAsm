@@ -40,3 +40,8 @@
 %define INST_LEAVE_OPCODE_LEN 1
 
 %define INST_NOT_LEN 4
+
+
+%define W_8 0
+%define W_16 1
+%define W_32 1

@@ -16,6 +16,7 @@ section .data
     op1_index_len   dw 0
     op1_base_len    dw 0
     op1_disp_len    dw 0
+    op1_size_declr_len  dw 0
 
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
@@ -45,6 +46,7 @@ section .bss
     op1_index       resb 3
     op1_base        resb 3
     op1_disp        resb 8
+    op1_size_declr  resb 5
 
 section .text
     global _start
@@ -300,7 +302,76 @@ assemble_single_operand_instructions:
     ret
 
 assemble_not:
+    call process_size_declaration
     call process_operand_1
+    ret
+
+process_size_declaration:
+    push rcx
+    mov rax, op1_size_declr
+    xor rbx, rbx
+    mov bx, [op1_size_declr_len]
+    call clear_memory
+    xor rbx, rbx
+
+    size_declr_loop:
+        cmp byte [instruction + rcx] , " "
+        je size_declr_break
+
+        mov dl, [instruction + rcx]
+        mov byte [op1_size_declr + rbx], dl
+
+        inc rbx
+        inc rcx
+        jmp size_declr_loop
+
+    size_declr_break:
+    mov [op1_size_declr_len], bx
+    call is_op1_size_declr_valid
+
+    cmp rax, 1
+    jne invalid_size_declr
+    mov rdx, rcx
+    pop rcx
+    mov rcx, rdx
+    ret
+
+    invalid_size_declr:
+    pop rcx
+    ret
+
+is_op1_size_declr_valid:
+    cmp byte [op1_size_declr_len], 4
+    jne size_declr_five
+
+    cmp dword [op1_size_declr], "byte"
+    je size_declr_valid
+
+    cmp dword [op1_size_declr], "word"
+    je size_declr_valid
+
+    jmp size_declr_invalid
+
+    size_declr_five:
+    cmp byte [op1_size_declr_len], 5
+    jne size_declr_invalid
+
+    cmp dword [op1_size_declr], "dwor"
+    je size_declr_half_valid
+
+    cmp dword [op1_size_declr], "qwor"
+    je size_declr_half_valid
+
+    size_declr_invalid:
+    mov rax, 0
+    ret
+
+    size_declr_half_valid:
+    cmp byte [op1_size_declr + 4], "d"
+    jne size_declr_invalid
+
+    size_declr_valid:
+    mov rax, 1
     ret
 
 process_operand_1:                                 ; determines op1_*
