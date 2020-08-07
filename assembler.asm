@@ -18,6 +18,9 @@ section .data
     op1_disp_len    dw 0
     op1_size_declr_len  dw 0
 
+    op_size         dw 0
+    addr_size       dw 0
+
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
     INST_STD        db  "std",0
@@ -40,11 +43,11 @@ section .bss
     strcmp_len      resb 1
 
     dummy_str       resb 100
-    op1_reg         resb 3
+    op1_reg         resb 4
     op1_type        resb 1                      ; 0: reg, 1: mem, 2: immediate
     op1_scale       resb 1
-    op1_index       resb 3
-    op1_base        resb 3
+    op1_index       resb 4
+    op1_base        resb 4
     op1_disp        resb 8
     op1_size_declr  resb 5
 
@@ -218,11 +221,29 @@ read_instruction:
 assemble_instruction:
     push rcx
 
+    call cleanup_previous_instruction
     call assemble_zero_operand_instructions
     call assemble_single_operand_instructions
 
     pop rcx
     ret
+
+cleanup_previous_instruction:
+    mov word [instruction_len], 0
+    mov word [machine_code_len], 0
+    mov word [dummy_str_len], 0
+
+    mov word [op1_has_base], 0
+
+    mov word [op1_reg_len], 0
+    mov word [op1_scale_len], 0
+    mov word [op1_index_len], 0
+    mov word [op1_base_len], 0
+    mov word [op1_disp_len], 0
+    mov word [op1_size_declr_len], 0
+
+    mov word [op_size], 0
+    mov word [addr_size], 0
 
 ; ========== ZERO OPERANDS ==========
 assemble_zero_operand_instructions:
@@ -304,6 +325,95 @@ assemble_single_operand_instructions:
 assemble_not:
     call process_size_declaration
     call process_operand_1
+    call determine_operand_size
+    call determine_address_size
+    ret
+
+determine_operand_size:
+    cmp byte [op_size], 0
+    jne dos_return
+
+    cmp byte [op1_type], 0        ; reg
+    jne determine_ow
+    call determine_operand_size_by_op1_register
+    ret
+
+    determine_ow:
+    ; fill in the blank
+
+    dos_return:
+    ret
+
+determine_operand_size_by_op1_register:
+    cmp byte [op1_reg_len], 4
+    jne determine_2
+
+    cmp byte [op1_reg + 3], "d"
+    je op_size_32
+
+    cmp byte [op1_reg + 3], "w"
+    je op_size_16
+
+    cmp byte [op1_reg + 3], "b"
+    je op_size_8
+
+
+    determine_2:
+    cmp byte [op1_reg_len], 2
+    jne determine_3
+
+    cmp byte [op1_reg+1], "l"
+    je op_size_8
+
+    cmp byte [op1_reg+1], "h"
+    je op_size_8
+
+    cmp byte [op1_reg], "r"
+    je op_size_64
+
+    jmp op_size_16
+
+    determine_3:         ; 3 letters
+
+    cmp word [op1_reg], "r8"
+    je determine_r8_r9_subs
+
+    cmp word [op1_reg], "r9"
+    je determine_r8_r9_subs
+
+    cmp byte [op1_reg], "e"
+    je op_size_32
+
+    cmp byte [op1_reg], "r"
+    je op_size_64
+
+    determine_r8_r9_subs:
+    cmp byte [op1_reg + 2], "d"
+    je op_size_32
+
+    cmp byte [op1_reg + 2], "w"
+    je op_size_16
+
+    cmp byte [op1_reg + 2], "b"
+    je op_size_8
+
+    op_size_8:
+    mov byte [op_size], 8
+    ret
+
+    op_size_16:
+    mov byte [op_size], 16
+    ret
+
+    op_size_32:
+    mov byte [op_size], 32
+    ret
+
+    op_size_64:
+    mov byte [op_size], 64
+    ret
+
+determine_address_size:
     ret
 
 process_size_declaration:
@@ -402,7 +512,6 @@ process_operand_1:                                 ; determines op1_*
 
 process_register_operand_1:
     xor rdx, rdx
-    inc rcx
     process_register_next_char:
         mov al, [instruction + rcx]
         cmp al, " "
@@ -411,6 +520,7 @@ process_register_operand_1:
         je process_register_next_char_break
 
         mov byte [op1_reg + rdx], al
+        inc word [op1_reg_len]
         inc rcx
         inc rdx
         jmp process_register_next_char
