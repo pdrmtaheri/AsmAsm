@@ -2,11 +2,20 @@
 %include "common.asm"
 
 section .data
-    bufsize         dw  8192
-    filename        db  "testfile.asm",0
+    bufsize          dw 8192
+    filename         db "testfile.asm",0
 
-    instruction_len dw  0
+    instruction_len  dw 0
     machine_code_len dw 0
+    dummy_str_len    dw 0
+
+    op1_has_base     db 0
+
+    op1_reg_len     dw 0
+    op1_scale_len   dw 0
+    op1_index_len   dw 0
+    op1_base_len    dw 0
+    op1_disp_len    dw 0
 
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
@@ -28,6 +37,14 @@ section .bss
     machine_code    resb 200
 
     strcmp_len      resb 1
+
+    dummy_str       resb 100
+    op1_reg         resb 3
+    op1_type        resb 1                      ; 0: reg, 1: mem, 2: immediate
+    op1_scale       resb 1
+    op1_index       resb 3
+    op1_base        resb 3
+    op1_disp        resb 8
 
 section .text
     global _start
@@ -62,6 +79,64 @@ clear_memory:                                ; clears starting from rax to len r
         inc rcx
 
     clear_memory_end:
+    pop rcx
+    ret
+
+memcpy:                                  ; copies from rsi to rdi with len rbx
+    push rcx
+    xor rcx, rcx
+    memcpy_loop:
+        cmp rcx, rbx
+        jae memcpy_end
+
+        mov r8b, [rsi + rcx]
+        mov byte [rdi + rcx], r8b
+        inc rcx
+        jmp memcpy_loop
+
+    memcpy_end:
+    pop rcx
+    ret
+
+is_hex:                                  ; checks for numerical hex value in [rax]
+    cmp byte [rax], "0"
+    je is_hex_test_x
+    mov rax, 0
+    ret
+
+    is_hex_test_x:
+    cmp byte [rax+1], "x"
+    je is_hex_true
+    mov rax, 0
+    ret
+
+    is_hex_true:
+    mov rax, 1
+    ret
+
+is_numeric:                                  ; checks for numerical hex value in [rax] to len rbx
+    push rcx
+    xor rcx, rcx
+    check_char:
+        cmp rcx, rbx
+        jae is_numeric_true
+
+        cmp byte [rax + rcx], "9"
+        ja is_numeric_false
+
+        cmp byte [rax + rcx], "0"
+        jb is_numeric_false
+
+        inc rcx
+        jmp check_char
+
+    is_numeric_false:
+    mov rax, 0
+    pop rcx
+    ret
+
+    is_numeric_true:
+    mov rax, 1
     pop rcx
     ret
 
@@ -221,6 +296,160 @@ assemble_single_operand_instructions:
     ret
 
     call_assemble_not:
+    call assemble_not
+    ret
+
+assemble_not:
+    call process_operand_1
+    ret
+
+process_operand_1:                                 ; determines op1_*
+    cmp byte [instruction + rcx], "["
+    jne process_register
+    jmp process_memory
+
+    process_register:
+    mov byte [op1_type], 0
+    call process_register_operand_1
+    ret
+
+    process_memory:
+    mov rax, instruction
+    add rax, rcx
+    call is_hex
+    cmp rax, 1                               ; immediate data, ow, memory
+    je process_immediate_operand_1
+
+    mov byte [op1_type], 1
+    call process_memory_operand_1
+    ret
+
+    process_immediate_operand_1:
+    mov byte [op1_type], 2
+    ; fill in this blank
+    ret
+
+process_register_operand_1:
+    xor rdx, rdx
+    inc rcx
+    process_register_next_char:
+        mov al, [instruction + rcx]
+        cmp al, " "
+        je process_register_next_char_break
+        cmp al, 10
+        je process_register_next_char_break
+
+        mov byte [op1_reg + rdx], al
+        inc rcx
+        inc rdx
+        jmp process_register_next_char
+
+    process_register_next_char_break:
+    ret
+
+process_memory_operand_1:
+    process_memory_next_part:
+        cmp byte [instruction + rcx], "]"
+        je process_memory_next_part_break
+        call process_next_memory_operand_1
+        jmp process_memory_next_part
+    
+    process_memory_next_part_break:
+    ret
+
+process_next_memory_operand_1:
+    enter 8, 0                     ; to store previous arithmetic operator
+
+    mov rax, dummy_str
+    mov bx, [dummy_str_len]
+    call clear_memory
+    mov word [dummy_str_len], 0
+
+    mov dl , [instruction + rcx]
+    mov [rbp-8], dl
+    xor rdx, rdx
+    inc rcx
+    process_next_memory_next_char:
+        mov al, [instruction + rcx]
+        cmp al, "+"
+        je flush_next_memory_operand_1
+
+        mov al, [instruction + rcx]
+        cmp al, "*"
+        je flush_next_memory_operand_1
+
+        mov al, [instruction + rcx]
+        cmp al, "]"
+        je flush_next_memory_operand_1
+
+        mov [dummy_str + rdx], al
+        inc word [dummy_str_len]
+        inc rcx
+        inc rdx
+        jmp process_next_memory_next_char
+    
+    flush_next_memory_operand_1:
+    cmp byte [rbp-8], "*"
+    je flush_has_multiplication
+
+    cmp byte [instruction + rcx], "*"
+    je flush_has_multiplication
+
+    mov rax, dummy_str
+    call is_hex
+    cmp rax, 1                ; is hex, hence [dummy_str] holds the displacement. ow, base
+    je flush_displacement
+
+;   flush_base:
+    cmp byte [op1_has_base], 1
+    je flush_index
+
+    mov byte [op1_has_base], 1
+    mov rsi, dummy_str
+    mov rdi, op1_base
+    xor rbx, rbx
+    mov bx, [dummy_str_len]
+    mov word [op1_base_len], bx
+    call memcpy
+    leave
+    ret
+
+    flush_has_multiplication:
+    mov rax, dummy_str
+    xor rbx, rbx
+    mov bx, [dummy_str_len]
+    call is_numeric
+    cmp rax, 1                ; is number, hence [dummy_str] holds the scale. ow, index
+    je flush_scale
+
+    flush_index:
+    mov rsi, dummy_str
+    mov rdi, op1_index
+    xor rbx, rbx
+    mov bx, [dummy_str_len]
+    mov word [op1_index_len], bx
+    call memcpy
+    leave
+    ret
+
+    flush_displacement:
+    mov rsi, dummy_str
+    mov rdi, op1_disp
+    xor rbx, rbx
+    mov bx, [dummy_str_len]
+    mov word [op1_disp_len], bx
+    call memcpy
+    leave
+    ret
+
+    flush_scale:
+    mov rsi, dummy_str
+    mov rdi, op1_scale
+    xor rbx, rbx
+    mov bx, [dummy_str_len]
+    mov word [op1_scale_len], bx
+    call memcpy
+    leave
     ret
 
 close_file:
