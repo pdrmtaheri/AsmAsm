@@ -21,6 +21,9 @@ section .data
     op_size         db 0
     addr_size       db 0
 
+    op_prefix       db 1
+    addr_prefix     db 1
+
     INST_STC        db  "stc",0
     INST_CLC        db  "clc",0
     INST_STD        db  "std",0
@@ -244,6 +247,9 @@ cleanup_previous_instruction:
     mov byte [op_size], 0
     mov byte [addr_size], 0
 
+    mov byte [op_prefix], 0
+    mov byte [addr_prefix], 0
+
 ; ========== ZERO OPERANDS ==========
 assemble_zero_operand_instructions:
     mov rbx, instruction
@@ -326,6 +332,7 @@ assemble_not:
     call process_operand_1
     call determine_operand_size
     call determine_address_size
+    call determine_prefix
 
     mov byte [machine_code], INST_NOT_OPCODE
     cmp byte [op_size], 8
@@ -376,6 +383,29 @@ assemble_not:
 
     assemble_not_add_disp_bytes:
     call append_disp_byte_from_rax
+    ret
+
+determine_prefix:
+    call determine_op_prefix
+    call determine_addr_prefix
+    ret
+
+determine_op_prefix:
+    cmp byte [op_size], 16
+    jne no_op_prefix
+
+    mov byte [op_prefix], 0x66
+
+    no_op_prefix:
+    ret
+
+determine_addr_prefix:
+    cmp byte [addr_size], 32
+    jne no_addr_prefix
+
+    mov byte [addr_prefix], 0x67
+
+    no_addr_prefix:
     ret
 
 append_disp_byte_from_rax:
