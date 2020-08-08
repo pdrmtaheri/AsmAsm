@@ -43,6 +43,9 @@
 %define INST_NOT_OPCODE 0b11110110             ; last zero for w
 %define INST_NOT_MOD_REG_RM 0b00010000         ; first two zeros for mod, last three for r/m
 
+%define INST_NEG_LEN 4
+%define INST_NEG_OPCODE 0b11110110             ; last zero for w
+%define INST_NEG_MOD_REG_RM 0b00011000         ; first two zeros for mod, last three for r/m
 
 %define W_8 0
 %define W_16 1

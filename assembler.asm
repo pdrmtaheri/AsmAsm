@@ -35,6 +35,7 @@ section .data
     INST_LEAVE      db  "leave",0
 
     INST_NOT        db  "not ",0
+    INST_NEG        db  "neg ",0
 
 section .bss
     buf             resb 8192
@@ -323,10 +324,80 @@ assemble_single_operand_instructions:
     mov byte [strcmp_len], INST_NOT_LEN
     call compare_strings
     je call_assemble_not
+
+    mov rax, INST_NEG
+    mov byte [strcmp_len], INST_NEG_LEN
+    call compare_strings
+    je call_assemble_neg
+
     ret
+
 
     call_assemble_not:
     call assemble_not
+    ret
+
+    call_assemble_neg:
+    call assemble_neg
+    ret
+
+assemble_neg:
+    call process_size_declaration
+    call process_operand_1
+    call determine_operand_size
+    call determine_address_size
+    call determine_prefix
+    call determine_rex
+
+    mov byte [machine_code], INST_NEG_OPCODE
+    cmp byte [op_size], 8
+    je assemble_neg_skip_adding_w
+    or byte [machine_code], 0b00000001
+
+    assemble_neg_skip_adding_w:
+    mov byte [machine_code + 1], INST_NEG_MOD_REG_RM
+    cmp byte [op1_type], 1
+    je assemble_neg_memory
+    or byte [machine_code + 1], 0b11000000
+
+    mov rax, op1_reg
+    mov bx, [op1_reg_len]
+    call get_register_code
+    or byte [machine_code+1], al
+
+    ret
+
+    assemble_neg_memory:
+    cmp word [op1_index_len], 0
+    jne assemble_neg_handle_sib
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_code
+    or byte [machine_code+1], al
+    jmp assemble_neg_handle_disp
+
+    assemble_neg_handle_sib:
+    or byte [machine_code+1], 0b00000100
+    call create_sib_byte_in_al
+    mov [machine_code+2], al
+
+    assemble_neg_handle_disp:
+    cmp word [op1_disp_len], 0
+    jne assemble_neg_add_disp
+    ret
+
+    assemble_neg_add_disp:
+    cmp word [op1_disp_len], 4
+    ja assemble_neg_disp_32
+    or byte [machine_code+1], 0b01000000      ; 8bit disp
+    jmp assemble_neg_add_disp_bytes
+
+    assemble_neg_disp_32:
+    or byte [machine_code+1], 0b10000000      ; 32bit disp
+    jmp assemble_neg_add_disp_bytes
+
+    assemble_neg_add_disp_bytes:
+    call append_disp_byte_from_rax
     ret
 
 assemble_not:

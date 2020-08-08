@@ -1,3 +1,4 @@
+neg r8
 not r8
 not dword [rax+0x12]
 not dword [eax+ebx*4+0x12]
