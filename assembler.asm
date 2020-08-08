@@ -39,6 +39,8 @@ section .data
     INST_IDIV       db  "idiv ",0
     INST_INC        db  "inc ",0
     INST_DEC        db  "dec ",0
+    INST_JMP        db  "jmp ",0
+    INST_CALL       db  "call ",0
 
 section .bss
     buf             resb 8192
@@ -347,8 +349,18 @@ assemble_single_operand_instructions:
     mov byte [strcmp_len], INST_DEC_LEN
     call compare_strings
     je call_assemble_dec
-    ret
 
+    mov rax, INST_JMP
+    mov byte [strcmp_len], INST_JMP_LEN
+    call compare_strings
+    je call_assemble_jmp
+
+    mov rax, INST_CALL
+    mov byte [strcmp_len], INST_CALL_LEN
+    call compare_strings
+    je call_assemble_call
+
+    ret
 
     call_assemble_not:
     call assemble_not
@@ -369,6 +381,139 @@ assemble_single_operand_instructions:
 
     call_assemble_dec:
     call assemble_dec
+    ret
+
+    call_assemble_jmp:
+    call assemble_jmp
+    ret
+
+    call_assemble_call:
+    call assemble_call
+    ret
+
+assemble_call:
+    call process_size_declaration_jmp_call
+    call process_operand_1
+    call determine_operand_size
+    call determine_address_size
+    call determine_prefix
+    call determine_rex
+
+    mov byte [machine_code], INST_CALL_OPCODE
+    cmp byte [op_size], 8
+    je assemble_call_skip_adding_w
+    or byte [machine_code], 0b00000001
+
+    assemble_call_skip_adding_w:
+    mov byte [machine_code + 1], INST_CALL_MOD_REG_RM
+    cmp byte [op1_type], 1
+    je assemble_call_memory
+    or byte [machine_code + 1], 0b11000000
+
+    mov rax, op1_reg
+    mov bx, [op1_reg_len]
+    call get_register_code
+    or byte [machine_code+1], al
+
+    ret
+
+    assemble_call_memory:
+    cmp word [op1_index_len], 0
+    jne assemble_call_handle_sib
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_code
+    or byte [machine_code+1], al
+    call assemble_call_handle_disp
+
+    assemble_call_handle_sib:
+    or byte [machine_code+1], 0b00000100
+    call create_sib_byte_in_al
+    mov [machine_code+2], al
+
+    assemble_call_handle_disp:
+    cmp word [op1_disp_len], 0
+    jne assemble_call_add_disp
+    ret
+
+    assemble_call_add_disp:
+    cmp word [op1_disp_len], 4
+    ja assemble_call_disp_32
+    or byte [machine_code+1], 0b01000000      ; 8bit disp
+    call assemble_call_add_disp_bytes
+
+    assemble_call_disp_32:
+    or byte [machine_code+1], 0b10000000      ; 32bit disp
+    call assemble_call_add_disp_bytes
+
+    assemble_call_add_disp_bytes:
+    call append_disp_byte_from_rax
+    ret
+
+assemble_jmp:
+    call process_size_declaration_jmp_call
+    call process_operand_1
+    call determine_operand_size
+    call determine_address_size
+    call determine_prefix
+    call determine_rex
+
+    mov byte [machine_code], INST_JMP_OPCODE
+    cmp byte [op_size], 8
+    je assemble_jmp_skip_adding_w
+    or byte [machine_code], 0b00000001
+
+    assemble_jmp_skip_adding_w:
+    mov byte [machine_code + 1], INST_JMP_MOD_REG_RM
+    cmp byte [op1_type], 1
+    je assemble_jmp_memory
+    or byte [machine_code + 1], 0b11000000
+
+    mov rax, op1_reg
+    mov bx, [op1_reg_len]
+    call get_register_code
+    or byte [machine_code+1], al
+
+    ret
+
+    assemble_jmp_memory:
+    cmp word [op1_index_len], 0
+    jne assemble_jmp_handle_sib
+    mov rax, op1_base
+    mov bx, [op1_base_len]
+    call get_register_code
+    or byte [machine_code+1], al
+    jmp assemble_jmp_handle_disp
+
+    assemble_jmp_handle_sib:
+    or byte [machine_code+1], 0b00000100
+    call create_sib_byte_in_al
+    mov [machine_code+2], al
+
+    assemble_jmp_handle_disp:
+    cmp word [op1_disp_len], 0
+    jne assemble_jmp_add_disp
+    ret
+
+    assemble_jmp_add_disp:
+    cmp word [op1_disp_len], 4
+    ja assemble_jmp_disp_32
+    or byte [machine_code+1], 0b01000000      ; 8bit disp
+    jmp assemble_jmp_add_disp_bytes
+
+    assemble_jmp_disp_32:
+    or byte [machine_code+1], 0b10000000      ; 32bit disp
+    jmp assemble_jmp_add_disp_bytes
+
+    assemble_jmp_add_disp_bytes:
+    call append_disp_byte_from_rax
+    ret
+
+process_size_declaration_jmp_call:
+    mov dword [op1_size_declr], "qwor"
+    mov byte [op1_size_declr+4], "d"
+    mov byte [op1_size_declr_len], 5
+    mov byte [op_size], 64
     ret
 
 assemble_idiv:
@@ -709,11 +854,14 @@ determine_rex:
     or byte [rex_field], 0b00000001
 
     no_rex:
-    cmp byte [rex_field], 0
-    je no_chance_rex
-    
     cmp byte [op_size], 64
     jne no_chance_rex
+
+    cmp byte [rex_field], 0
+    jne already_has_rex
+    mov byte [rex_field], REX
+    
+    already_has_rex:
     or byte [rex_field], 0b00001000
     ret
 

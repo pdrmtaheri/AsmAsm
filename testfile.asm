@@ -1,20 +1,10 @@
-neg r8
-not r8
-not dword [rax+0x12]
-not dword [eax+ebx*4+0x12]
-not ecx
-not rcx
-not cx
-not r8
-not r10
-not ah
-not ax
-not r8w
-not r10w
-not dword [eax+ebx*4+0x12]
-stc
-cld
-std
-clc
+inc r15
+idiv qword [r12*4]
+jmp r9
+jmp [r9+r12*8]
+neg r14
+not qword [r13]
+call r10
+call [r10+r11*8]
 syscall
-leave
+ret
