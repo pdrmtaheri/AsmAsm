@@ -8,6 +8,7 @@
 %define RWX_PERM 0777
 %define RW_CREAT 0102o
 %define READONLY_ACCESS 0
+%define RW_ACCESS 02
 
 %define BYTE_MIN 0
 %define BYTE_MAX 255

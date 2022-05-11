@@ -1,10 +1,8 @@
-inc r15
-idiv qword [r12*4]
-jmp r9
-jmp [r9+r12*8]
-neg r14
-not qword [r13]
+jmp [r9d+r12d*8+0x551e]
 call r10
-call [r10+r11*8]
-syscall
-ret
+neg r14
+jmp r9
+inc r15
+idiv qword [r12*4+1]
+not qword [r13]
+dec qword [0x5555551e]

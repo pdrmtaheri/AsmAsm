@@ -4,6 +4,7 @@
 section .data
     bufsize          dw 8192
     filename         db "testfile.asm",0
+    outfile          db "out.o",0
 
     instruction_len  dw 0
     machine_code_len dw 0
@@ -46,6 +47,7 @@ section .bss
     buf             resb 8192
     datasize        resq 1
     file_descriptor resq 1
+    out_file_descriptor resq 1
 
     instruction     resb 200
     machine_code    resb 200
@@ -166,6 +168,7 @@ exit:
     mov rax, SYS_EXIT
     mov rdi, EXIT_SUCCESS
     syscall
+    ret
 
 open_file:
     mov rax, SYS_OPEN
@@ -174,6 +177,13 @@ open_file:
     mov rdx, RWX_PERM
     syscall
     mov qword [file_descriptor], rax
+
+    mov rax, SYS_OPEN
+    mov rdi, outfile
+    mov rsi, RW_CREAT
+    mov rdx, RWX_PERM
+    syscall
+    mov qword [out_file_descriptor], rax
 
     ret
 
@@ -192,10 +202,21 @@ assemble_file:
     main_loop:
         call read_instruction
         call assemble_instruction
+        call output_machine_code
 
         cmp qword rcx, [datasize]
         jl main_loop
 
+    ret
+
+output_machine_code:
+    push rcx
+    mov rax, SYS_WRITE
+    mov rdi, [out_file_descriptor]
+    mov rsi, machine_code
+    mov rdx, 1
+    syscall
+    pop rcx
     ret
 
 read_instruction:
@@ -398,6 +419,7 @@ assemble_call:
     call determine_address_size
     call determine_prefix
     call determine_rex
+    and byte [rex_field], 0b11110111 ;zero w
 
     mov byte [machine_code], INST_CALL_OPCODE
     cmp byte [op_size], 8
@@ -457,6 +479,7 @@ assemble_jmp:
     call determine_address_size
     call determine_prefix
     call determine_rex
+    and byte [rex_field], 0b11110111 ;zero w
 
     mov byte [machine_code], INST_JMP_OPCODE
     cmp byte [op_size], 8
@@ -812,6 +835,7 @@ assemble_not:
     ret
 
 determine_rex:
+    mov byte [rex_field], 0
     cmp byte [op1_type], 0 ; reg
     je check_64bit_register
     jmp check_64bit_memory
@@ -850,7 +874,7 @@ determine_rex:
     je no_rex
     cmp byte [op1_base], "r"
     jne no_rex
-    mov byte [rex_field], REX
+    or byte [rex_field], REX
     or byte [rex_field], 0b00000001
 
     no_rex:
@@ -930,6 +954,13 @@ append_disp_byte_from_rax:
     ret
 
 create_disp_byte_in_rax:
+;    cmp word [op1_disp_len], 0
+;    jne cdbir_continue
+;    xor rax, rax
+;    mov rbx, 4
+;    ret
+
+    cdbir_continue:
     push rcx
     xor rax, rax
     mov rcx, 2
@@ -1353,6 +1384,10 @@ process_next_memory_operand_1:
 close_file:
     mov rax, SYS_CLOSE
     mov rdi, [file_descriptor]
+    syscall
+
+    mov rax, SYS_CLOSE
+    mov rdi, [out_file_descriptor]
     syscall
 
     ret
